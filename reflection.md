@@ -4,8 +4,19 @@
 
 **a. Initial design**
 
-- Briefly describe your initial UML design.
-- What classes did you include, and what responsibilities did you assign to each?
+The initial design has a Scheduler that handles the overall scheduling tasks for an Owner who has a collection of Pets. Each Pet has a list of Tasks that the Scheduler schedules into a DailyPlan consisting of ScheduledItems.
+
+The Scheduler's main responsibility is generating a plan.
+
+The Owner keeps track of their name, preferences, time availabilities, and their pets.
+
+Each Pet has a name, species, age, and notes, as well as a list of tasks that should be scheduled.
+
+A Task has an ID, title, category, duration, priority, preferred time, and completion status.
+
+A ScheduledItem is a Task assigned for a pet at a particulat start and end time.
+
+The DailyPlan is a list of ScheduledItems for a particular date, and includes a list of skipped tasks if there are conflicts. It can summarize and explain choices made by the Scheduler in its creation.
 
 **b. Design changes**
 
