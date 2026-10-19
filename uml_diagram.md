@@ -67,8 +67,8 @@ classDiagram
         +generate_plan(day: date) DailyPlan
         -due_tasks(day: date) list~tuple~
         -rank_tasks(pairs: list) list
-        -find_slot(task: Task, cursor: int) int
-        -explain_choice(pet: Pet, task: Task, scheduled: bool) str
+        -find_slot(task: Task, busy: list) int
+        -explain_choice(pet: Pet, task: Task, start: int) str
     }
 
     class ScheduledItem {

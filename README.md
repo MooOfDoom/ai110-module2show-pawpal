@@ -22,6 +22,18 @@ Your final app should:
 - Display the plan clearly (and ideally explain the reasoning)
 - Include tests for the most important scheduling behaviors
 
+## Implementation summary
+
+The core logic lives in `pawpal_system.py` (design in `uml_diagram.md`). `main.py` is a terminal demo and `tests/test_pawpal.py` holds the tests.
+
+- **Owner** holds the day window (`day_start`–`day_end`), `Preferences` (category time windows, quiet hours) and a list of pets. `get_all_tasks()` returns `(Pet, Task)` pairs.
+- **Pet** owns its list of **Tasks** and can add (rejecting duplicates), edit and remove them.
+- **Task** is a dataclass with duration, `Priority`, an optional preferred start, and a `Frequency` (once, daily, weekly). It validates itself and tracks completion per date.
+- **Scheduler** takes an owner and `generate_plan(day)` reads every pet's tasks through the owner. It keeps tasks that are due and not yet completed, ranks them by priority, then preferred start, then shortest duration, and puts each into the earliest free slot. Slots respect the day window, category windows, quiet hours and tasks already placed, so the plan is sequential across all pets.
+- **DailyPlan** is the result: `ScheduledItem`s (task, pet, start/end, reason) plus a `skipped` list with the reason each task didn't fit. `summary()` and `explain()` produce the text for the terminal or the Streamlit UI.
+
+Times are stored as minutes since midnight. A preferred start is a soft preference: if that time is taken, the task moves to the next free slot.
+
 ## Getting started
 
 ### Setup
@@ -47,11 +59,23 @@ pip install -r requirements.txt
 Paste a sample of your app's CLI or Streamlit output here so a reader can see what a generated plan looks like:
 
 ```
-# e.g.:
-# Daily plan for Biscuit (Golden Retriever):
-#   08:00 — Morning walk (30 min) [priority: high]
-#   09:00 — Feeding (10 min) [priority: high]
-#   ...
+>python main.py
+==================================================
+Today's Schedule for Jordan (07:00-21:00)
+==================================================
+Plan for 2026-10-18 (90 min scheduled):
+  07:30-08:00  Buddy: Morning walk [HIGH]
+  08:00-08:10  Whiskers: Breakfast [HIGH]
+  09:00-09:05  Whiskers: Give medication [HIGH]
+  17:00-17:25  Whiskers: Laser pointer play [MEDIUM]
+  18:00-18:20  Buddy: Brush coat [LOW]
+
+Why these tasks:
+  - Buddy / Morning walk: high priority, scheduled at 07:30 (preferred time 07:30 honored)
+  - Whiskers / Breakfast: high priority, scheduled at 08:00 (preferred time 08:00 honored)
+  - Whiskers / Give medication: high priority, scheduled at 09:00 (preferred time 09:00 honored)
+  - Whiskers / Laser pointer play: medium priority, scheduled at 17:00 (preferred time 17:00 honored)
+  - Buddy / Brush coat: low priority, scheduled at 18:00 (preferred time 18:00 honored)
 ```
 
 ## 🧪 Testing PawPal+
