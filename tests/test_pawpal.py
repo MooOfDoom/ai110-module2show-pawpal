@@ -2,6 +2,8 @@ import sys
 from datetime import date, timedelta
 from pathlib import Path
 
+import pytest
+
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from pawpal_system import Frequency, Owner, Pet, Scheduler, Task
@@ -197,3 +199,196 @@ def test_generate_plan_reports_conflicts_without_crashing():
     assert len(plan.warnings) == 1
     assert len(plan.items) == 2  # both still scheduled, the second at a free slot
     assert "Warnings:" in plan.explain()
+
+
+# ---------------------------------------------------------------- edge cases
+
+
+def test_empty_owner_and_pet_without_tasks_produce_empty_results():
+    owner = Owner("Jordan")
+    scheduler = Scheduler(owner)
+
+    assert scheduler.sort_tasks_by_time([]) == []
+    assert scheduler.filter_tasks() == []
+    assert scheduler.detect_conflicts(date.today()) == []
+    assert scheduler.generate_plan(date.today()).items == []
+
+    owner.add_pet(Pet("Buddy", "dog"))  # a pet with no tasks
+    plan = scheduler.generate_plan(date.today())
+
+    assert owner.get_all_tasks() == []
+    assert plan.items == [] and plan.skipped == [] and plan.warnings == []
+    assert "nothing scheduled" in plan.explain()
+
+
+def test_midnight_preferred_start_sorts_first_not_as_untimed():
+    pet = Pet("Buddy", "dog")
+    pet.add_task(Task("Feed", "feeding", 10))
+    pet.add_task(Task("Late", "misc", 10, preferred_start=600))
+    pet.add_task(Task("Midnight", "misc", 10, preferred_start=0))
+    owner = Owner("Jordan")
+    owner.add_pet(pet)
+    scheduler = Scheduler(owner)
+
+    result = scheduler.sort_tasks_by_time(owner.get_all_tasks())
+
+    assert [t.title for _, t in result] == ["Midnight", "Late", "Feed"]
+
+
+def test_sort_is_stable_for_equal_times_and_for_untimed_tasks():
+    pet = Pet("Buddy", "dog")
+    for title, start in [("B", 540), ("A", 540), ("Y", None), ("X", None), ("C", 540)]:
+        pet.add_task(Task(title, title, 10, preferred_start=start))
+    owner = Owner("Jordan")
+    owner.add_pet(pet)
+
+    result = Scheduler(owner).sort_tasks_by_time(owner.get_all_tasks())
+
+    assert [t.title for _, t in result] == ["B", "A", "C", "Y", "X"]
+
+
+def test_identical_start_for_same_pet_is_a_same_pet_conflict():
+    scheduler = conflict_scheduler(("Buddy", "Walk", 540, 30), ("Buddy", "Brush", 540, 30))
+
+    warnings = scheduler.detect_conflicts(date.today())
+
+    assert len(warnings) == 1 and "same pet" in warnings[0]
+
+
+def test_three_tasks_at_same_minute_each_conflict_with_the_first():
+    scheduler = conflict_scheduler(
+        ("Buddy", "A", 540, 30), ("Whiskers", "B", 540, 30), ("Rex", "C", 540, 30)
+    )
+
+    assert len(scheduler.detect_conflicts(date.today())) == 2
+
+
+def test_one_minute_overlap_conflicts_but_exact_touch_does_not():
+    overlap = conflict_scheduler(("Buddy", "Walk", 540, 30), ("Whiskers", "Meds", 569, 5))
+    touch = conflict_scheduler(("Buddy", "Walk", 540, 30), ("Whiskers", "Meds", 570, 5))
+
+    assert len(overlap.detect_conflicts(date.today())) == 1
+    assert touch.detect_conflicts(date.today()) == []
+
+
+def test_completed_task_no_longer_conflicts():
+    scheduler = conflict_scheduler(("Buddy", "Walk", 540, 30), ("Whiskers", "Meds", 540, 5))
+    today = date.today()
+    scheduler.owner.pets[1].tasks[0].mark_complete(today)
+
+    assert scheduler.detect_conflicts(today) == []
+
+
+def test_weekly_task_completed_on_other_weekday_recurs_from_completion_day():
+    pet = Pet("Whiskers", "cat")
+    wednesday = date(2026, 10, 21)
+    bath = Task("Bath", "grooming", 20, frequency=Frequency.WEEKLY, weekday=0)  # Monday
+    pet.add_task(bath)
+
+    nxt = pet.complete_task(bath.id, wednesday)
+
+    assert nxt.due_date == date(2026, 10, 28)
+    assert nxt.weekday == wednesday.weekday()  # follows the new due date
+
+
+def test_recurrence_across_leap_day():
+    daily = Task("Feed", "feeding", 10, frequency=Frequency.DAILY)
+    weekly = Task("Bath", "grooming", 20, frequency=Frequency.WEEKLY, weekday=1)
+
+    assert daily.next_occurrence(date(2028, 2, 28)).due_date == date(2028, 2, 29)
+    assert daily.next_occurrence(date(2028, 2, 29)).due_date == date(2028, 3, 1)
+    assert daily.next_occurrence(date(2027, 2, 28)).due_date == date(2027, 3, 1)
+    assert weekly.next_occurrence(date(2028, 2, 22)).due_date == date(2028, 2, 29)
+
+
+def test_complete_task_with_unknown_id_raises_key_error():
+    pet = Pet("Buddy", "dog")
+    pet.add_task(Task("Walk", "exercise", 30))
+
+    with pytest.raises(KeyError):
+        pet.complete_task("does-not-exist", date.today())
+
+
+def test_completing_a_chain_of_daily_tasks_leaves_one_pending():
+    pet = Pet("Buddy", "dog")
+    pet.add_task(Task("Walk", "exercise", 30, frequency=Frequency.DAILY))
+    day = date(2026, 10, 18)
+
+    for offset in range(3):
+        current = day + timedelta(days=offset)
+        pending = [t for t in pet.tasks if not t.is_completed(current)]
+        assert len(pending) == 1
+        pet.complete_task(pending[0].id, current)
+
+    assert len(pet.tasks) == 4
+    pending = [t for t in pet.tasks if not t.is_completed(day)]
+    assert len(pending) == 1 and pending[0].due_date == day + timedelta(days=3)
+
+
+def test_is_due_respects_due_date_and_weekly_weekday():
+    day = date(2026, 10, 19)  # Monday
+    future = Task("Walk", "exercise", 30, due_date=day + timedelta(days=1))
+    past = Task("Walk", "exercise", 30, due_date=day - timedelta(days=5))
+    weekly_mon = Task("Bath", "grooming", 20, frequency=Frequency.WEEKLY, weekday=0)
+    weekly_tue = Task("Bath", "grooming", 20, frequency=Frequency.WEEKLY, weekday=1)
+
+    assert not future.is_due(day) and future.is_due(day + timedelta(days=1))
+    assert past.is_due(day)
+    assert weekly_mon.is_due(day) and not weekly_tue.is_due(day)
+
+
+def test_task_validation_rejects_bad_duration_start_and_weekly_without_weekday():
+    with pytest.raises(ValueError):
+        Task("Zero", "misc", 0)
+    with pytest.raises(ValueError):
+        Task("Negative start", "misc", 10, preferred_start=-1)
+    with pytest.raises(ValueError):
+        Task("Past midnight start", "misc", 10, preferred_start=1440)
+    with pytest.raises(ValueError):
+        Task("Bath", "grooming", 20, frequency=Frequency.WEEKLY)
+
+
+def test_task_running_past_midnight_conflicts_and_is_skipped_without_crashing():
+    scheduler = conflict_scheduler(("Buddy", "Late walk", 1430, 30), ("Whiskers", "Meds", 1439, 5))
+
+    assert len(scheduler.detect_conflicts(date.today())) == 1
+
+    plan = scheduler.generate_plan(date.today())  # default day window ends at 20:00
+
+    assert len(plan.warnings) == 1
+    assert len(plan.skipped) + len(plan.items) == 2
+
+
+def test_task_longer_than_day_window_is_skipped_with_reason():
+    owner = Owner("Jordan", day_start=8 * 60, day_end=9 * 60)
+    pet = Pet("Buddy", "dog")
+    owner.add_pet(pet)
+    pet.add_task(Task("Hike", "exercise", 120))
+
+    plan = Scheduler(owner).generate_plan(date.today())
+
+    assert plan.items == [] and len(plan.skipped) == 1
+    assert "Skipped:" in plan.explain()
+
+
+def test_filter_blank_pet_name_means_no_filter_and_completed_defaults_to_today():
+    scheduler = make_scheduler()
+    for _, task in scheduler.owner.get_all_tasks():
+        if task.title == "Walk":
+            task.mark_complete(date.today())
+
+    assert len(scheduler.filter_tasks(pet_name="   ")) == 4
+    assert len(scheduler.filter_tasks(pet_name="")) == 4
+    assert [t.title for _, t in scheduler.filter_tasks(completed=True)] == ["Walk"]
+
+
+def test_duplicate_pet_name_and_duplicate_task_are_rejected():
+    owner = Owner("Jordan")
+    owner.add_pet(Pet("Buddy", "dog"))
+    with pytest.raises(ValueError):
+        owner.add_pet(Pet(" buddy ", "cat"))
+
+    pet = Pet("Rex", "dog")
+    pet.add_task(Task("Walk", "exercise", 30))
+    with pytest.raises(ValueError):
+        pet.add_task(Task("walk", "Exercise", 15))

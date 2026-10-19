@@ -80,12 +80,40 @@ Why these tasks:
 
 ## 🧪 Testing PawPal+
 
-```bash
-# Run the full test suite:
-pytest
+Run the full test suite from the project root:
 
-# Run with coverage:
-pytest --cov
+```bash
+python -m pytest
+```
+
+The tests in [tests/test_pawpal.py](tests/test_pawpal.py) cover:
+
+- **Task basics:** marking a task complete, and adding a task to a pet.
+- **Sorting:** tasks come back in chronological order with untimed tasks last. Ties keep their input order, and a task at midnight (00:00) sorts first.
+- **Filtering:** by pet name (case-insensitive, and a blank name means no filter), by completion status, and both combined.
+- **Recurrence:**
+  - Completing a daily or weekly task creates the next occurrence (+1 day or +7 days).
+  - Month, year and leap-day rollovers work.
+  - Completing a task twice creates no duplicate, and an unknown task id raises `KeyError`.
+  - The scheduler skips a completed recurring task until its next due date.
+- **Conflict detection:**
+  - Duplicate times are flagged across pets and for the same pet.
+  - Partial overlaps and long tasks are flagged, but back-to-back and untimed tasks are not.
+  - Completed tasks are ignored, and tasks running past midnight don't crash.
+- **Edge cases:** an owner with no pets or a pet with no tasks, task validation (zero duration, out-of-range start, weekly task without a weekday), tasks that don't fit the day window, and duplicate pet or task names.
+
+Example of a successful run:
+
+```text
+============================= test session starts =============================
+platform win32 -- Python 3.13.14, pytest-9.1.1, pluggy-1.6.0
+rootdir: C:\Dev\CodePath\AI110\ai110-module2show-pawpal
+plugins: anyio-4.8.0
+collected 33 items
+
+tests\test_pawpal.py .................................                   [100%]
+
+============================= 33 passed in 0.08s ==============================
 ```
 
 Sample test output:

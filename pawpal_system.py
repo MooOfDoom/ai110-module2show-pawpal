@@ -348,7 +348,7 @@ class Scheduler:
 
         Args:
             pet_name: Keep only this pet's tasks (case-insensitive, surrounding spaces
-                ignored). None keeps all pets.
+                ignored). None or a blank string keeps all pets.
             completed: True keeps completed tasks, False keeps pending ones, None keeps both.
             day: The date used for the completion check (default today).
 
@@ -357,7 +357,7 @@ class Scheduler:
             empty if nothing matches (an unknown pet is not an error).
         """
         day = day or Date.today()
-        name = pet_name.strip().lower() if pet_name is not None else None
+        name = (pet_name or "").strip().lower() or None
         return [
             (pet, task)
             for pet, task in self.owner.get_all_tasks()
