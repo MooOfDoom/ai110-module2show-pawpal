@@ -58,8 +58,11 @@ The DailyPlan is a list of ScheduledItems for a particular date, and includes a 
 
 **b. Tradeoffs**
 
-- Describe one tradeoff your scheduler makes.
-- Why is that tradeoff reasonable for this scenario?
+The scheduler treats a preferred start time as a soft preference, and it places tasks greedily. It ranks tasks by priority, then preferred time, then shortest duration. Each task goes into the earliest free slot at or after its preferred start, and only falls back to the start of the day if nothing fits later. When two tasks want the same time, the higher-priority one keeps it. The lower-priority one is moved to the next gap, and `detect_conflicts` only warns about the clash instead of stopping or rearranging the plan. For example, Training (17:10, low priority) overlapped Laser pointer play (17:00-17:25), so it was moved to 17:25.
+
+The cost is that this is not an optimal schedule. Placing a high-priority task first can push a lower-priority task away from its preferred time. It can also leave a small gap that a different ordering would have filled. The scheduler never backtracks to try another arrangement, and the conflict check only compares preferred times, not the final plan.
+
+This is reasonable for a single owner's daily pet care. There are only a handful of tasks, and the owner does one thing at a time. Priority matters more than exact timing, since a medication should not lose its slot to grooming. A greedy pass is also easy to explain: every item in the plan has a `reason` saying why it got its time. A search for the best arrangement could produce a tighter plan, but it would be harder to explain and would be more than this app needs. Warning instead of failing keeps the app usable when the owner enters clashing times, and the plan still shows what changed.
 
 ---
 
