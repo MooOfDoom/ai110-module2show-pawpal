@@ -115,41 +115,160 @@ if owner.pets:
 else:
     st.info("Add a pet before adding tasks.")
 
+scheduler = Scheduler(owner)
 all_tasks = owner.get_all_tasks()
-if all_tasks:
-    st.write("Current tasks:")
-    st.table(
-        [
-            {
-                "pet": pet.name,
-                "title": task.title,
-                "category": task.category,
-                "minutes": task.duration_minutes,
-                "priority": task.priority.name.lower(),
-                "preferred": format_time(task.preferred_start) if task.preferred_start is not None else "-",
-                "repeats": task.frequency.value,
-            }
-            for pet, task in all_tasks
-        ]
-    )
-else:
+
+st.divider()
+st.subheader("Your Tasks")
+
+if "flash" in st.session_state:
+    st.success(st.session_state.pop("flash"))
+
+if not all_tasks:
     st.info("No tasks yet. Add one above.")
+else:
+    f1, f2, f3 = st.columns(3)
+    with f1:
+        pet_filter = st.selectbox("Show pet", ["All pets"] + [p.name for p in owner.pets])
+    with f2:
+        status_filter = st.selectbox("Status", ["All", "Pending", "Completed"])
+    with f3:
+        sort_choice = st.selectbox("Sort by", ["Time added", "Preferred time"])
+
+    shown = scheduler.filter_tasks(
+        pet_name=None if pet_filter == "All pets" else pet_filter,
+        completed={"All": None, "Pending": False, "Completed": True}[status_filter],
+    )
+    if sort_choice == "Preferred time":
+        shown = scheduler.sort_tasks_by_time(shown)
+
+    if shown:
+        st.caption(f"Showing {len(shown)} of {len(all_tasks)} tasks.")
+        st.table(
+            [
+                {
+                    "pet": pet.name,
+                    "title": task.title,
+                    "category": task.category,
+                    "minutes": task.duration_minutes,
+                    "priority": task.priority.name.lower(),
+                    "preferred": format_time(task.preferred_start) if task.preferred_start is not None else "-",
+                    "repeats": task.frequency.value,
+                }
+                for pet, task in shown
+            ]
+        )
+    else:
+        st.info("No tasks match these filters.")
+
+    # Check for clashes as soon as tasks exist, not only after generating a schedule.
+    conflicts = scheduler.detect_conflicts()
+    if conflicts:
+        st.warning(
+            f"**{len(conflicts)} time clash{'es' if len(conflicts) != 1 else ''} found.** "
+            "These tasks want overlapping times. You can still generate a schedule: "
+            "PawPal+ will move the lower-priority task to the next free slot."
+        )
+        for message in conflicts:
+            st.warning(message.replace("Conflict ", "", 1).capitalize(), icon="⚠️")
+        st.caption("Fix it by changing one task's preferred start time, or by shortening a task.")
+
+    with st.expander("Edit or remove a task"):
+        by_id = {task.id: (pet, task) for pet, task in all_tasks}
+        task_id = st.selectbox(
+            "Task",
+            list(by_id),
+            format_func=lambda i: f"{by_id[i][0].name} / {by_id[i][1].title}",
+        )
+        edit_pet, edit_task = by_id[task_id]
+        k = task_id  # widget keys per task, so fields reset when the selection changes
+
+        e1, e2, e3 = st.columns(3)
+        with e1:
+            new_title = st.text_input("Title", value=edit_task.title, key=f"title_{k}")
+            new_category = st.text_input("Category", value=edit_task.category, key=f"cat_{k}")
+        with e2:
+            new_duration = st.number_input(
+                "Duration (minutes)", min_value=1, max_value=240,
+                value=min(edit_task.duration_minutes, 240), key=f"dur_{k}",
+            )
+            new_priority = st.selectbox(
+                "Priority", ["low", "medium", "high"],
+                index=edit_task.priority.value - 1, key=f"pri_{k}",
+            )
+        with e3:
+            freqs = [f.value for f in Frequency]
+            new_frequency = st.selectbox(
+                "Frequency", freqs, index=freqs.index(edit_task.frequency.value), key=f"freq_{k}"
+            )
+            new_weekday = None
+            if new_frequency == Frequency.WEEKLY.value:
+                new_weekday = st.selectbox(
+                    "Weekday", range(7), index=edit_task.weekday or 0, key=f"wd_{k}",
+                    format_func=lambda d: ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"][d],
+                )
+
+        has_pref = st.checkbox(
+            "Preferred start time", value=edit_task.preferred_start is not None, key=f"haspref_{k}"
+        )
+        new_start = None
+        if has_pref:
+            current = edit_task.preferred_start if edit_task.preferred_start is not None else 8 * 60
+            t = st.time_input("Preferred start", value=time(current // 60, current % 60), key=f"start_{k}")
+            new_start = t.hour * 60 + t.minute
+
+        save_col, delete_col = st.columns(2)
+        if save_col.button("Save changes", key=f"save_{k}"):
+            try:
+                edit_pet.edit_task(
+                    task_id,
+                    title=new_title.strip(),
+                    category=new_category.strip(),
+                    duration_minutes=int(new_duration),
+                    priority=Priority[new_priority.upper()],
+                    preferred_start=new_start,
+                    frequency=Frequency(new_frequency),
+                    weekday=new_weekday,
+                )
+                st.session_state.pop("plan", None)  # the old plan is now stale
+                st.session_state.flash = f"Updated '{new_title.strip()}'."
+                st.rerun()
+            except ValueError as e:
+                st.error(str(e))
+        if delete_col.button("Remove task", key=f"del_{k}"):
+            edit_pet.remove_task(task_id)
+            st.session_state.pop("plan", None)
+            st.session_state.flash = f"Removed '{edit_task.title}' from {edit_pet.name}."
+            st.rerun()
 
 st.divider()
 
 st.subheader("Build Schedule")
 st.caption(f"Plans the day from {format_time(owner.day_start)} to {format_time(owner.day_end)}.")
 
-if st.button("Generate schedule"):
+if st.button("Generate schedule", type="primary"):
     if not all_tasks:
         st.warning("Add at least one task first.")
     else:
-        st.session_state.plan = Scheduler(owner).generate_plan()
+        st.session_state.plan = scheduler.generate_plan()
 
 plan = st.session_state.get("plan")
 if plan:
-    st.markdown(f"#### Today's plan ({plan.total_minutes} min scheduled)")
+    if plan.items and not plan.skipped:
+        st.success(f"All {len(plan.items)} tasks fit today ({plan.total_minutes} min scheduled).")
+    elif plan.items:
+        st.warning(
+            f"Scheduled {len(plan.items)} tasks ({plan.total_minutes} min), "
+            f"but {len(plan.skipped)} did not fit."
+        )
+    else:
+        st.error("Nothing could be scheduled today.")
+
+    for w in plan.warnings:
+        st.warning(w, icon="⚠️")
+
     if plan.items:
+        st.markdown("#### Today's plan")
         st.table(
             [
                 {
@@ -162,5 +281,7 @@ if plan:
                 for i in plan.items
             ]
         )
-    for pet, task, why in plan.skipped:
-        st.warning(f"Skipped {pet.name} / {task.title}: {why}")
+    if plan.skipped:
+        st.markdown("#### Could not schedule")
+        for pet, task, why in plan.skipped:
+            st.error(f"**{pet.name} / {task.title}**: {why}")

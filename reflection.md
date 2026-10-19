@@ -53,8 +53,16 @@ The DailyPlan is a list of ScheduledItems for a particular date, and includes a 
 
 **a. Constraints and priorities**
 
-- What constraints does your scheduler consider (for example: time, priority, preferences)?
-- How did you decide which constraints mattered most?
+The scheduler considers these constraints:
+
+- **Time:** the owner's day window (`day_start` to `day_end`), each task's duration, and the fact that the owner does one thing at a time, so tasks never overlap across pets.
+- **Due date and completion:** only tasks that are due that day and not yet completed are planned. Weekly tasks appear only on their weekday, and a completed daily task returns on its next due date.
+- **Priority:** high, medium or low.
+- **Preferences:** a task's preferred start time, per-category time windows (for example, walks only between certain hours), and quiet hours when nothing may be scheduled.
+
+I ranked them as hard limits first, then priority, then preferences. The day window, quiet hours, category windows and not double-booking the owner are hard: no task is ever placed in violation of them, and a task that cannot fit is skipped with a reason. Priority comes next, because it decides who gets a contested slot. Preferred start times come last, as a soft preference. If the preferred time is taken, the task moves to the next free slot, and the plan says its preferred time was unavailable.
+
+I chose this order by asking what the owner would regret most. A missed medication or feeding costs far more than a walk at 08:00 instead of 07:30. So priority beats timing, and the tie-breakers (preferred time, then shortest duration) only matter between tasks of equal priority. Shortest-first also leaves room for more tasks in the day. Making the hard limits non-negotiable keeps the plan something the owner can actually follow.
 
 **b. Tradeoffs**
 
@@ -86,13 +94,28 @@ I read and understood the AI's generated code, and tested it by running it throu
 
 **a. What you tested**
 
-- What behaviors did you test?
-- Why were these tests important?
+The AI wrote 33 tests in `tests/test_pawpal.py`. They cover:
+
+- **Sorting:** chronological order, untimed tasks last, ties keep their input order, and a task at 00:00 sorts first and isn't treated as untimed.
+- **Filtering:** by pet (case-insensitive, blank means no filter), by completion status, and both combined.
+- **Recurrence:** completing a daily or weekly task creates the next occurrence due +1 or +7 days, including month, year and leap-day rollovers. Completing twice creates no duplicate, an unknown id raises `KeyError`, and a completed recurring task is skipped until its next due date.
+- **Conflict detection:** same-time clashes for the same pet and across pets, partial and one-minute overlaps, a long task flagged against every task it covers, three tasks at the same minute, back-to-back tasks (no conflict), completed tasks (ignored), and a task running past midnight.
+- **Edge cases and validation:** an owner with no pets, a pet with no tasks, a task longer than the day window (skipped with a reason), bad durations and start times, a weekly task with no weekday, and duplicate pet or task names.
+
+These mattered because they are the places where a scheduler fails quietly. A wrong date rollover or an off-by-one overlap check produces a plan that looks fine and is wrong, and the owner would only find out when a task is missed. Recurrence and conflict logic also have many boundaries (exact touch versus overlap, midnight, month ends), so I tested each boundary on purpose.
 
 **b. Confidence**
 
-- How confident are you that your scheduler works correctly?
-- What edge cases would you test next if you had more time?
+I'm confident in the helper behaviors (sorting, filtering, recurrence, conflict detection), since each has boundary tests and all 33 pass. I'm less sure about `generate_plan` itself. The tests only check that it reports conflicts without crashing and that over-long tasks are skipped. They don't assert the ranking order or exact slot placement. I trust it from running `main.py` and reading the output, such as Training moving from 17:10 to 17:25, but that is manual checking, not a regression test. I also checked the Streamlit add, edit and remove flow with a scripted run, not a saved test.
+
+With more time I would test:
+
+- **Plan placement:** high priority beats low priority for a contested slot, and a short task fills a gap left by a pushed-back task.
+- **Preferences:** quiet hours and category windows, since no test uses them yet.
+- **Task edits:** `edit_task` and `remove_task`, including an edit that fails validation leaving the task unchanged, and an edit that renames a task to a duplicate (currently accepted).
+- **Stale plans:** a plan generated before an edit still holds the old task object.
+- **Time boundaries:** a task that ends exactly at `day_end`, or a day window that starts at midnight.
+- **Weekly tasks:** a weekly task generated on a different weekday than the one it was created on.
 
 ---
 
@@ -100,12 +123,12 @@ I read and understood the AI's generated code, and tested it by running it throu
 
 **a. What went well**
 
-- What part of this project are you most satisfied with?
+Everything worked pretty much first try. The specifications were clear enough that the AI could plan a successful app, and the plan of attack through creating the UML diagram and the skeleton, and integrating it with the streamlit UI resulted in a decent final product with lots of tests for verification.
 
 **b. What you would improve**
 
-- If you had another iteration, what would you improve or redesign?
+The edit and remove UI could use some cleanup.
 
 **c. Key takeaway**
 
-- What is one important thing you learned about designing systems or working with AI on this project?
+It's important to be critical, but also useful to be flexible and curious. The AI will sometimes self-correct earlier mistakes.

@@ -1,0 +1,120 @@
+classDiagram
+    class Owner {
+        +str name
+        +int day_start
+        +int day_end
+        +Preferences preferences
+        +list~Pet~ pets
+        +available_minutes() int
+        +add_pet(pet: Pet) void
+        +remove_pet(pet: Pet) void
+        +get_all_tasks() list~tuple~Pet, Task~~
+    }
+
+    class Preferences {
+        +dict~str, tuple~int,int~~ category_windows
+        +list~tuple~int,int~~ quiet_hours
+    }
+
+    class Pet {
+        +str name
+        +str species
+        +int age
+        +str notes
+        +list~Task~ tasks
+        +add_task(task: Task) void
+        +edit_task(task_id: str, **changes) void
+        +complete_task(task_id: str, day: date) Task
+        +remove_task(task_id: str) void
+    }
+
+    class Task {
+        +str id
+        +str title
+        +str category
+        +int duration_minutes
+        +Priority priority
+        +int preferred_start
+        +Frequency frequency
+        +int weekday
+        +date due_date
+        +set~date~ completed_on
+        +is_due(day: date) bool
+        +is_completed(day: date) bool
+        +next_occurrence(day: date) Task
+        +mark_complete(day: date) Task
+    }
+
+    class Priority {
+        <<enumeration>>
+        LOW
+        MEDIUM
+        HIGH
+    }
+
+    class Frequency {
+        <<enumeration>>
+        ONCE
+        DAILY
+        WEEKLY
+    }
+
+    class Scheduler {
+        +Owner owner
+        +DailyPlan plan
+        +generate_plan(day: date) DailyPlan
+        +sort_tasks_by_time(pairs: list) list
+        +filter_tasks(pet_name: str, completed: bool, day: date) list
+        +detect_conflicts(day: date) list~str~
+        -conflict_message(a: tuple, b: tuple) str$
+        -due_tasks(day: date) list~tuple~
+        -rank_tasks(pairs: list) list
+        -find_slot(task: Task, busy: list) int
+        -first_gap(lo: int, hi: int, duration: int, busy: list) int$
+        -explain_choice(pet: Pet, task: Task, start: int) str
+    }
+
+    class ScheduledItem {
+        +Task task
+        +Pet pet
+        +int start_time
+        +int end_time
+        +str reason
+    }
+
+    class DailyPlan {
+        +date date
+        +list~ScheduledItem~ items
+        +list~tuple~Pet, Task, str~~ skipped
+        +list~str~ warnings
+        +total_minutes() int
+        +summary() str
+        +explain() str
+    }
+
+    class StreamlitUI {
+        <<app.py>>
+        owner and plan kept in st.session_state
+    }
+
+    Owner "1" *-- "0..*" Pet : owns
+    Owner *-- Preferences : has
+    Pet "1" *-- "0..*" Task : has
+    Pet ..> Task : appends next occurrence
+    Task --> Priority : uses
+    Task --> Frequency : repeats
+    Task ..> Task : next_occurrence creates
+    Scheduler --> Owner : plans for
+    Scheduler ..> Preferences : reads quiet_hours / category_windows
+    Scheduler --> DailyPlan : last plan
+    Scheduler ..> DailyPlan : creates (warnings from detect_conflicts)
+    Scheduler ..> ScheduledItem : creates
+    DailyPlan "1" *-- "0..*" ScheduledItem : contains
+    DailyPlan ..> Pet : skipped refers to
+    DailyPlan ..> Task : skipped refers to
+    ScheduledItem --> Task : snapshot of
+    ScheduledItem --> Pet : for
+    StreamlitUI ..> Owner : edits and reads
+    StreamlitUI ..> Pet : add / edit / remove tasks
+    StreamlitUI ..> Scheduler : public methods only
+    StreamlitUI ..> DailyPlan : displays
