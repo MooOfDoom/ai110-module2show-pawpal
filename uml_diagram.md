@@ -1,0 +1,83 @@
+# PawPal+ UML Class Diagram
+
+```mermaid
+classDiagram
+    class Owner {
+        +str name
+        +int available_minutes
+        +dict preferences
+        +list~Pet~ pets
+        +add_pet(pet: Pet) void
+        +remove_pet(pet: Pet) void
+        +get_all_tasks() list~Task~
+    }
+
+    class Pet {
+        +str name
+        +str species
+        +int age
+        +str notes
+        +list~Task~ tasks
+        +add_task(task: Task) void
+        +edit_task(task_id: str, **changes) void
+        +remove_task(task_id: str) void
+    }
+
+    class Task {
+        +str id
+        +str title
+        +str category
+        +int duration_minutes
+        +Priority priority
+        +str preferred_time
+        +bool completed
+        +mark_complete() void
+    }
+
+    class Priority {
+        <<enumeration>>
+        LOW
+        MEDIUM
+        HIGH
+    }
+
+    class Scheduler {
+        +Owner owner
+        +generate_plan() DailyPlan
+        -rank_tasks(tasks: list~Task~) list~Task~
+        -fits_in_time(task: Task, remaining: int) bool
+        -explain_choice(task: Task, scheduled: bool) str
+    }
+
+    class ScheduledItem {
+        +Task task
+        +Pet pet
+        +str start_time
+        +str end_time
+        +str reason
+    }
+
+    class DailyPlan {
+        +date date
+        +list~ScheduledItem~ items
+        +list~Task~ skipped_tasks
+        +int total_minutes
+        +summary() str
+        +explain() str
+    }
+
+    Owner "1" *-- "1..*" Pet : owns
+    Pet "1" *-- "0..*" Task : has
+    Task --> Priority : uses
+    Scheduler --> Owner : plans for
+    Scheduler ..> DailyPlan : creates
+    DailyPlan "1" *-- "0..*" ScheduledItem : contains
+    ScheduledItem --> Task : schedules
+    ScheduledItem --> Pet : for
+```
+
+## Notes
+- **Owner** holds constraints (available time, preferences) and the pets.
+- **Pet** owns its **Task** list; tasks need at least duration and priority.
+- **Scheduler** ranks tasks by priority and preference, fits them into the owner's available time, and records a reason for each decision.
+- **DailyPlan** is the output the Streamlit UI displays, including skipped tasks and the explanation.
